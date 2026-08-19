@@ -2,70 +2,67 @@ import sys
 import os
 import subprocess
 
-# --- تثبيت المكتبات أوتوماتيكياً عبر pip ---
 def auto_install():
-    needed = ["textual", "requests"]
+    needed = ["textual", "pycurl"]
     for package in needed:
         try:
             __import__(package)
         except ImportError:
-            print(f"[+] Installing {package} via pip...")
             subprocess.check_call([sys.executable, "-m", "pip", "install", package])
 
 auto_install()
 
-import requests
+import json
+from io import BytesIO
+import pycurl
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Button, Input, TextArea, RichLog
 from textual.containers import Container, Horizontal
 
-WANDBOX_URL = "https://wandbox.org/api/compile.json"
+JUDGE0_URL = "https://judge0-ce.p.rapidapi.com"
 
-# خريطة المترجمات الخاصة بـ Wandbox
-COMPILER_MAP = {
-    ".py": "cpython-3.10.11",
-    ".cpp": "gcc-13.2.0",
-    ".c": "gcc-13.2.0-c",
-    ".js": "nodejs-18.16.0",
-    ".rs": "rust-1.70.0",
-    ".java": "openjdk-head",
-    ".go": "go-1.20.4",
-    ".cs": "dotnet-7.0.302",
-    ".php": "php-8.2.5",
-    ".rb": "ruby-3.2.2",
-    ".sh": "bash"
+# ربط مباشر وقاطع بين الامتداد ورقم اللغة في السيرفر
+STRICT_EXTENSION_MAP = {
+    ".rs": 73,     # Rust
+    ".java": 62,   # Java
+    ".py": 71,     # Python 3
+    ".cpp": 54,    # C++ (GCC)
+    ".c": 50,      # C (GCC)
+    ".js": 63,     # Node.js
+    ".ts": 74,     # TypeScript
+    ".go": 60,     # Go
+    ".cs": 51,     # C#
+    ".php": 68,    # PHP
+    ".rb": 72,     # Ruby
+    ".kt": 78,     # Kotlin
+    ".sh": 46      # Bash
 }
 
 class CodeXApp(App):
     CSS = """
-    Screen {
-        background: $surface-darken-3;
-    }
-    #filename_input {
-        margin: 1 1 0 1;
-    }
-    #editor_container {
-        height: 50%;
-        margin: 1;
-    }
-    #button_bar {
-        height: 3;
-        margin: 0 1 0 1;
-    }
-    Button {
-        margin-right: 1;
-    }
-    #output_log {
-        height: 35%;
-        margin: 0 1 1 1;
-        border: solid $accent;
-        background: $surface;
-    }
+    Screen { background: $surface-darken-3; }
+    #filename_input { margin: 1 1 0 1; }
+    #editor_container { height: 50%; margin: 1; }
+    #button_bar { height: 3; margin: 0 1 0 1; }
+    Button { margin-right: 1; }
+    #output_log { height: 35%; margin: 0 1 1 1; border: solid $accent; background: $surface; }
     """
+
+    def fast_post_request(self, url, data_dict):
+        buffer = BytesIO()
+        c = pycurl.Curl()
+        c.setopt(c.URL, url)
+        c.setopt(c.POSTFIELDS, json.dumps(data_dict))
+        c.setopt(c.HTTPHEADER, ['Content-Type: application/json'])
+        c.setopt(c.WRITEDATA, buffer)
+        c.setopt(c.TIMEOUT, 15)
+        c.perform()
+        c.close()
+        return json.loads(buffer.getvalue().decode('utf-8'))
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        yield Input(placeholder="Enter filename (e.g., main.cpp, main.rs, script.py, app.js)", id="filename_input")
+        yield Input(placeholder="Enter filename (e.g., main.rs, Main.java, app.py)", id="filename_input")
         
         with Container(id="editor_container"):
             yield TextArea(placeholder="Write or paste your code here...", id="code_editor")
@@ -107,29 +104,35 @@ class CodeXApp(App):
                 return
 
             ext = os.path.splitext(filename)[1].lower()
-            compiler = COMPILER_MAP.get(ext, "cpython-3.10.11")
+            
+            # إجبار التعرف حسب الامتداد مباشرة
+            lang_id = STRICT_EXTENSION_MAP.get(ext)
 
-            log.write(f"[bold cyan]Executing {filename} via Wandbox ({compiler})...[/]")
+            if not lang_id:
+                log.write(f"[bold red]Error:[/] Unsupported file extension '{ext}'")
+                return
+
+            log.write(f"[bold cyan]Fast Execution via pycurl ({filename}) -> ID: {lang_id}...[/]")
 
             payload = {
-                "compiler": compiler,
-                "code": code
+                "source_code": code,
+                "language_id": lang_id
             }
 
-            headers = {"Content-Type": "application/json"}
-
             try:
-                res = requests.post(WANDBOX_URL, json=payload, headers=headers, timeout=20)
-                data = res.json()
+                data = self.fast_post_request(f"{JUDGE0_URL}/submissions?wait=true", payload)
 
-                program_output = data.get("program_output", "")
-                compiler_error = data.get("compiler_error", "")
-                status = data.get("status", "")
+                stdout = data.get("stdout")
+                stderr = data.get("stderr")
+                compile_output = data.get("compile_output")
 
-                output = program_output + compiler_error
+                output = ""
+                if stdout: output += stdout
+                if stderr: output += f"\nError:\n{stderr}"
+                if compile_output: output += f"\nCompilation Error:\n{compile_output}"
 
                 log.write("\n[bold yellow]--- OUTPUT ---[/]")
-                log.write(output if output else f"[Execution finished with status: {status}]")
+                log.write(output if output else "[Execution finished with no output]")
 
             except Exception as e:
                 log.write(f"[bold red]Connection Error:[/] {str(e)}")
