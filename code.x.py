@@ -1,11 +1,10 @@
 import sys
 import os
 import subprocess
-import json
-from io import BytesIO
+import requests
 
 def auto_install():
-    needed = ["textual", "pycurl"]
+    needed = ["textual", "requests"]
     for package in needed:
         try:
             __import__(package)
@@ -14,21 +13,19 @@ def auto_install():
 
 auto_install()
 
-import pycurl
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Button, Input, TextArea, RichLog
 from textual.containers import Container, Horizontal
 
-# سيرفر Wandbox المفتوح فوراً بدون مفاتيح
-WANDBOX_URL = "https://wandbox.org/api/compile.json"
+# سيرفر Piston المستقر مع مكتبة requests
+PISTON_URL = "https://emkc.org/api/v2/piston/execute"
 
-# خريطة المترجمات الخاصة بـ Wandbox
-COMPILER_MAP = {
-    ".rs": "rust-1.70.0",
-    ".py": "cpython-3.10.8",
-    ".js": "nodejs-18.12.1",
-    ".cpp": "gcc-head",
-    ".c": "gcc-head-c"
+LANG_MAP = {
+    ".rs": "rust",
+    ".py": "python",
+    ".js": "javascript",
+    ".cpp": "cpp",
+    ".c": "c"
 }
 
 class CodeXApp(App):
@@ -40,24 +37,6 @@ class CodeXApp(App):
     Button { margin-right: 1; }
     #output_log { height: 35%; margin: 0 1 1 1; border: solid $accent; background: $surface; }
     """
-
-    def fast_post_request(self, url, data_dict):
-        buffer = BytesIO()
-        c = pycurl.Curl()
-        c.setopt(c.URL, url)
-        c.setopt(c.POSTFIELDS, json.dumps(data_dict))
-        c.setopt(c.HTTPHEADER, ['Content-Type: application/json'])
-        c.setopt(c.WRITEDATA, buffer)
-        c.setopt(c.TIMEOUT, 20)
-        try:
-            c.perform()
-            c.close()
-            res_text = buffer.getvalue().decode('utf-8')
-            if not res_text.strip():
-                return {"error": "Empty response from server"}
-            return json.loads(res_text)
-        except Exception as e:
-            return {"error": str(e)}
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -79,50 +58,52 @@ class CodeXApp(App):
 
         if button_id == "btn_run":
             if not filename or not editor.text.strip():
-                log.write("[bold red]Error:[/] Please enter filename and code!")
+                log.write("[bold red]Error:[/] Enter filename and code!")
                 return
 
             ext = os.path.splitext(filename)[1].lower()
-            compiler = COMPILER_MAP.get(ext)
+            lang = LANG_MAP.get(ext)
             
-            if not compiler:
-                log.write(f"[bold red]Error:[/] Extension '{ext}' not configured.")
+            if not lang:
+                log.write(f"[bold red]Error:[/] Unsupported extension '{ext}'")
                 return
 
-            log.write(f"[bold cyan]Running via Wandbox API ({compiler})...[/]")
+            log.write(f"[bold cyan]Running code ({filename})...[/]")
             
             payload = {
-                "compiler": compiler,
-                "code": editor.text
+                "language": lang,
+                "version": "*",
+                "files": [{"name": filename, "content": editor.text}]
             }
             
-            data = self.fast_post_request(WANDBOX_URL, payload)
-            
-            if "error" in data:
-                log.write(f"[bold red]Error:[/] {data['error']}")
-            else:
-                program_output = data.get("program_output", "")
-                compiler_error = data.get("compiler_error", "")
+            try:
+                response = requests.post(PISTON_URL, json=payload, timeout=15)
+                data = response.json()
+                
+                run_data = data.get("run", {})
+                stdout = run_data.get("stdout", "")
+                stderr = run_data.get("stderr", "")
                 
                 log.write("\n[bold yellow]--- OUTPUT ---[/]")
-                if program_output:
-                    log.write(program_output)
-                elif compiler_error:
-                    log.write(f"[bold red]{compiler_error}[/]")
+                if stdout:
+                    log.write(stdout)
+                elif stderr:
+                    log.write(f"[bold red]{stderr}[/]")
                 else:
                     log.write("[Execution finished with no output]")
+            except Exception as e:
+                log.write(f"[bold red]Connection Error:[/] {str(e)}")
 
-        elif button_id == "btn_save":
-            if filename:
-                with open(filename, "w", encoding="utf-8") as f:
-                    f.write(editor.text)
-                log.write(f"[bold green]Saved:[/] {filename}")
+        elif button_id == "btn_save" and filename:
+            with open(filename, "w", encoding="utf-8") as f:
+                f.write(editor.text)
+            log.write(f"[bold green]Saved:[/] {filename}")
 
-        elif button_id == "btn_load":
-            if filename and os.path.exists(filename):
-                with open(filename, "r", encoding="utf-8") as f:
-                    editor.text = f.read()
-                log.write(f"[bold green]Loaded:[/] {filename}")
+        elif button_id == "btn_load" and filename and os.path.exists(filename):
+            with open(filename, "r", encoding="utf-8") as f:
+                editor.text = f.read()
+            log.write(f"[bold green]Loaded:[/] {filename}")
 
 if __name__ == "__main__":
     CodeXApp().run()
+
