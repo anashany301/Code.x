@@ -19,20 +19,16 @@ from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Button, Input, TextArea, RichLog
 from textual.containers import Container, Horizontal
 
-# سيرفر Glot المجاني المباشر والمفتوح لجميع اللغات
-GLOT_URL = "https://glot.io/api/run"
+# سيرفر Wandbox المفتوح فوراً بدون مفاتيح
+WANDBOX_URL = "https://wandbox.org/api/compile.json"
 
-LANG_MAP = {
-    ".rs": "rust", 
-    ".py": "python", 
-    ".js": "javascript", 
-    ".cpp": "cpp", 
-    ".c": "c",
-    ".java": "java",
-    ".go": "go",
-    ".cs": "csharp",
-    ".php": "php",
-    ".sh": "bash"
+# خريطة المترجمات الخاصة بـ Wandbox
+COMPILER_MAP = {
+    ".rs": "rust-1.70.0",
+    ".py": "cpython-3.10.8",
+    ".js": "nodejs-18.12.1",
+    ".cpp": "gcc-head",
+    ".c": "gcc-head-c"
 }
 
 class CodeXApp(App):
@@ -50,22 +46,22 @@ class CodeXApp(App):
         c = pycurl.Curl()
         c.setopt(c.URL, url)
         c.setopt(c.POSTFIELDS, json.dumps(data_dict))
-        c.setopt(c.HTTPHEADER, [
-            'Content-Type: application/json',
-            'User-Agent: CodeXApp/1.0'
-        ])
+        c.setopt(c.HTTPHEADER, ['Content-Type: application/json'])
         c.setopt(c.WRITEDATA, buffer)
-        c.setopt(c.TIMEOUT, 15)
+        c.setopt(c.TIMEOUT, 20)
         try:
             c.perform()
             c.close()
-            return json.loads(buffer.getvalue().decode('utf-8'))
+            res_text = buffer.getvalue().decode('utf-8')
+            if not res_text.strip():
+                return {"error": "Empty response from server"}
+            return json.loads(res_text)
         except Exception as e:
             return {"error": str(e)}
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        yield Input(placeholder="filename (e.g., main.rs, Main.java, script.py)", id="filename_input")
+        yield Input(placeholder="filename (e.g., main.rs)", id="filename_input")
         with Container(id="editor_container"):
             yield TextArea(placeholder="Write code here...", id="code_editor")
         with Horizontal(id="button_bar"):
@@ -87,41 +83,34 @@ class CodeXApp(App):
                 return
 
             ext = os.path.splitext(filename)[1].lower()
-            lang = LANG_MAP.get(ext)
+            compiler = COMPILER_MAP.get(ext)
             
-            if not lang:
-                log.write(f"[bold red]Error:[/] Unsupported file extension '{ext}'")
+            if not compiler:
+                log.write(f"[bold red]Error:[/] Extension '{ext}' not configured.")
                 return
 
-            log.write(f"[bold cyan]Executing via Glot API ({filename})...[/]")
+            log.write(f"[bold cyan]Running via Wandbox API ({compiler})...[/]")
             
-            # تجهيز الطلب بالشكل الدقيق الذي يطلبه سيرفر Glot
             payload = {
-                "files": [
-                    {
-                        "name": filename,
-                        "content": editor.text
-                    }
-                ]
+                "compiler": compiler,
+                "code": editor.text
             }
             
-            request_url = f"{GLOT_URL}/{lang}/latest"
-            data = self.fast_post_request(request_url, payload)
+            data = self.fast_post_request(WANDBOX_URL, payload)
             
             if "error" in data:
-                log.write(f"[bold red]Execution Error:[/] {data['error']}")
+                log.write(f"[bold red]Error:[/] {data['error']}")
             else:
-                stdout = data.get("stdout", "")
-                stderr = data.get("stderr", "")
-                error = data.get("error", "")
-                
-                output = ""
-                if stdout: output += stdout
-                if stderr: output += f"\n[bold red]Stderr:[ philosophy]\n{stderr}"
-                if error: output += f"\n[bold red]Error:[ philosophy]\n{error}"
+                program_output = data.get("program_output", "")
+                compiler_error = data.get("compiler_error", "")
                 
                 log.write("\n[bold yellow]--- OUTPUT ---[/]")
-                log.write(output.strip() if output.strip() else "[Execution finished with no output]")
+                if program_output:
+                    log.write(program_output)
+                elif compiler_error:
+                    log.write(f"[bold red]{compiler_error}[/]")
+                else:
+                    log.write("[Execution finished with no output]")
 
         elif button_id == "btn_save":
             if filename:
@@ -137,5 +126,3 @@ class CodeXApp(App):
 
 if __name__ == "__main__":
     CodeXApp().run()
-
-
