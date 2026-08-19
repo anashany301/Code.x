@@ -1,25 +1,11 @@
-import sys
-import os
-import subprocess
-import requests
-
-def auto_install():
-    needed = ["textual", "requests"]
-    for package in needed:
-        try:
-            __import__(package)
-        except ImportError:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-
-auto_install()
-
+import sys, os, subprocess, requests
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Button, Input, TextArea, RichLog
 from textual.containers import Container, Horizontal
 
-# سيرفر Piston المستقر مع مكتبة requests
 PISTON_URL = "https://emkc.org/api/v2/piston/execute"
 
+# خريطة اللغات مع إصداراتها
 LANG_MAP = {
     ".rs": "rust",
     ".py": "python",
@@ -70,10 +56,11 @@ class CodeXApp(App):
 
             log.write(f"[bold cyan]Running code ({filename})...[/]")
             
+            # الهيكل المظبوط لـ Piston API
             payload = {
                 "language": lang,
                 "version": "*",
-                "files": [{"name": filename, "content": editor.text}]
+                "files": [{"content": editor.text}]
             }
             
             try:
@@ -106,4 +93,3 @@ class CodeXApp(App):
 
 if __name__ == "__main__":
     CodeXApp().run()
-
