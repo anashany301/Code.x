@@ -2,7 +2,7 @@ import sys
 import os
 import subprocess
 
-# --- تثبيت المكتبات أوتوماتيكياً بواسطة pip ---
+# --- تثبيت المكتبات أوتوماتيكياً عبر pip ---
 def auto_install():
     needed = ["textual", "requests"]
     for package in needed:
@@ -17,16 +17,30 @@ auto_install()
 import requests
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Button, Input, TextArea, RichLog
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container, Horizontal
 
-PISTON_URL = "https://emkc.org/api/v2/piston"
+GLOT_URL = "https://glot.io/api/run"
 
-EXT_MAP = {
-    ".py": "python", ".cpp": "cpp", ".c": "c", ".java": "java",
-    ".rs": "rust", ".js": "javascript", ".ts": "typescript",
-    ".go": "go", ".cs": "csharp", ".php": "php", ".rb": "ruby",
-    ".kt": "kotlin", ".swift": "swift", ".sh": "bash", ".lua": "lua",
-    ".hs": "haskell", ".r": "r", ".pl": "perl", ".scala": "scala"
+GLOT_LANG_MAP = {
+    ".py": "python",
+    ".cpp": "cpp",
+    ".c": "c",
+    ".java": "java",
+    ".rs": "rust",
+    ".js": "javascript",
+    ".ts": "typescript",
+    ".go": "go",
+    ".cs": "csharp",
+    ".php": "php",
+    ".rb": "ruby",
+    ".kt": "kotlin",
+    ".swift": "swift",
+    ".sh": "bash",
+    ".lua": "lua",
+    ".hs": "haskell",
+    ".r": "r",
+    ".pl": "perl",
+    ".scala": "scala"
 }
 
 class CodeXApp(App):
@@ -58,7 +72,7 @@ class CodeXApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        yield Input(placeholder="Enter filename (e.g., main.cpp, Main.java, app.rs, script.py)", id="filename_input")
+        yield Input(placeholder="Enter filename (e.g., main.cpp, main.rs, script.py, app.js)", id="filename_input")
         
         with Container(id="editor_container"):
             yield TextArea(placeholder="Write or paste your code here...", id="code_editor")
@@ -100,30 +114,37 @@ class CodeXApp(App):
                 return
 
             ext = os.path.splitext(filename)[1].lower()
-            language = EXT_MAP.get(ext, ext.replace(".", ""))
+            language = GLOT_LANG_MAP.get(ext, ext.replace(".", ""))
 
-            log.write(f"[bold cyan]Executing {filename} via Piston ({language})...[/]")
+            log.write(f"[bold cyan]Executing {filename} via Glot Engine ({language})...[/]")
 
             payload = {
-                "language": language,
-                "version": "*",
-                "files": [{"name": filename, "content": code}]
+                "files": [
+                    {
+                        "name": filename,
+                        "content": code
+                    }
+                ]
             }
 
+            headers = {"Content-Type": "application/json"}
+
             try:
-                res = requests.post(f"{PISTON_URL}/execute", json=payload, timeout=15)
+                res = requests.post(f"{GLOT_URL}/{language}/latest", json=payload, headers=headers, timeout=15)
                 data = res.json()
 
-                if "run" in data:
-                    output = data["run"]["output"]
-                    log.write("\n[bold yellow]--- OUTPUT ---[/]")
-                    log.write(output if output else "[No output generated]")
-                else:
-                    log.write(f"[bold red]Server Error:[/] {data.get('message', 'Failed')}")
+                stdout = data.get("stdout", "")
+                stderr = data.get("stderr", "")
+                error = data.get("error", "")
+
+                output = stdout + stderr + error
+
+                log.write("\n[bold yellow]--- OUTPUT ---[/]")
+                log.write(output if output else "[Execution finished with no output]")
+
             except Exception as e:
                 log.write(f"[bold red]Connection Error:[/] {str(e)}")
 
 if __name__ == "__main__":
     app = CodeXApp()
     app.run()
-
