@@ -2,17 +2,25 @@ import sys
 import os
 import subprocess
 
-# --- التنزيل التلقائي للمكتبات الأساسية + مكتبة cURL المسرّعة بـ C ---
-def install_requirements():
-    required_packages = ["PyQt5", "pycurl"]
-    for package in required_packages:
+# --- دالة التثبيت التلقائي الشاملة بدون أخطاء ---
+def auto_install_all():
+    # 1. التثبيت عبر pkg لبيئة Termux لضمان عدم حدوث خطأ qmake/PyQt5
+    try:
+        import PyQt5
+    except ImportError:
+        print("[+] Installing PyQt5 & System Dependencies via pkg...")
+        subprocess.run("pkg update -y && pkg install x11-repo -y && pkg install python-pyqt5 qt5-qtbase -y", shell=True)
+
+    # 2. تثبيت باقي المكتبات عبر pip تلقائياً
+    pip_packages = ["requests", "pycurl"]
+    for package in pip_packages:
         try:
             __import__(package)
         except ImportError:
-            print(f"Installing {package}...")
+            print(f"[+] Installing {package} via pip...")
             subprocess.check_call([sys.executable, "-m", "pip", "install", package])
 
-install_requirements()
+auto_install_all()
 
 import pycurl
 import json
@@ -31,7 +39,7 @@ class CodeXApp(QWidget):
         self.load_all_languages()
 
     def initUI(self):
-        self.setWindowTitle("Code.x - Fast Ultra Executor")
+        self.setWindowTitle("Code.x - Universal Fast Executor")
         self.resize(600, 700)
 
         palette = QPalette()
@@ -72,7 +80,6 @@ class CodeXApp(QWidget):
 
         self.setLayout(layout)
 
-    # دالة إرسال الطلبات المسرّعة بمحرك C (pycurl)
     def fast_post_request(self, url, data_dict):
         buffer = BytesIO()
         c = pycurl.Curl()
@@ -152,7 +159,7 @@ class CodeXApp(QWidget):
         payload = {"source_code": code, "language_id": lang_id}
 
         try:
-            self.output_display.setText("Running via Low-Level C Engine...")
+            self.output_display.setText("Running...")
             QApplication.processEvents()
 
             data = self.fast_post_request(f"{JUDGE0_URL}/submissions?wait=true", payload)
@@ -175,4 +182,3 @@ if __name__ == "__main__":
     window = CodeXApp()
     window.show()
     sys.exit(app.exec_())
-
