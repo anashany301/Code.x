@@ -1,14 +1,15 @@
 import asyncio
 import re
 import sys
+import os
 import httpx
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, TextArea, Button, Static
+from textual.widgets import Header, Footer, TextArea, Button, Static, Input
 from textual.containers import Horizontal, Vertical
 
+# رابط الـ API الخاص بك على Vercel
 MY_API_URL = "https://my-fastapi-server.vercel.app/run"
 
-# مكتبات بايثون المدمجة التي لا تحتاج لتثبيت
 STDLIB = {
     'sys', 'os', 'math', 'json', 'time', 'random', 'asyncio', 
     're', 'datetime', 'subprocess', 'urllib', 'typing', 'string'
@@ -19,12 +20,23 @@ class CodeXApp(App):
     Screen {
         background: $surface;
     }
+    #file_bar {
+        height: 12%;
+        align: center middle;
+        padding: 0 1;
+    }
+    #filename_input {
+        width: 60%;
+    }
+    .file_btn {
+        margin: 0 1;
+    }
     #editor {
-        height: 60%;
+        height: 50%;
         border: solid green;
     }
     #output {
-        height: 30%;
+        height: 28%;
         border: solid blue;
         background: $panel;
         padding: 1;
@@ -33,22 +45,28 @@ class CodeXApp(App):
         height: 10%;
         align: center middle;
     }
-    Button {
-        margin: 1 2;
+    .action_btn {
+        margin: 0 1;
     }
     """
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
+        yield Horizontal(
+            Input(value="script.py", placeholder="Filename (e.g. main.py)", id="filename_input"),
+            Button("Save", id="save_btn", variant="primary", classes="file_btn"),
+            Button("Load", id="load_btn", variant="default", classes="file_btn"),
+            id="file_bar"
+        )
         yield Vertical(
             TextArea(
-                "import requests\nprint(requests.__name__)", 
+                "print('Hello from CodeX App!')", 
                 id="editor", 
                 language="python"
             ),
             Horizontal(
-                Button("Run Code", id="run_btn", variant="success"),
-                Button("Clear Output", id="clear_btn", variant="error"),
+                Button("Run Code", id="run_btn", variant="success", classes="action_btn"),
+                Button("Clear Output", id="clear_btn", variant="error", classes="action_btn"),
                 id="controls"
             ),
             Static("Output will appear here...", id="output"),
@@ -56,13 +74,12 @@ class CodeXApp(App):
         yield Footer()
 
     async def auto_install_missing_packages(self, code_text: str, output_widget: Static):
-        """فحص الكود وتثبيت المكتبات الناقصة محلياً في Termux"""
+        """فحص وتثبيت أي مكتبة ناقصة محلياً قبل التشغيل"""
         imports = re.findall(r'^(?:import|from)\s+([a-zA-Z0-9_]+)', code_text, re.MULTILINE)
         needed_libs = set(imports) - STDLIB
 
         for lib in needed_libs:
             output_widget.update(f"[Yellow]Checking/Installing library: {lib}...[/Yellow]")
-            # تشغيل أمر pip install لتنزيل المكتبة
             proc = await asyncio.create_subprocess_exec(
                 sys.executable, "-m", "pip", "install", lib,
                 stdout=asyncio.subprocess.PIPE,
@@ -73,18 +90,20 @@ class CodeXApp(App):
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         output_widget = self.query_one("#output", Static)
         editor = self.query_one("#editor", TextArea)
+        filename_input = self.query_one("#filename_input", Input)
+        filename = filename_input.value.strip() or "script.py"
 
+        # 1. زر تشغيل الكود
         if event.button.id == "run_btn":
             code_text = editor.text
             
-            # 1. تثبيت المكتبات الناقصة أولاً
+            # تثبيت المكتبات الناقصة
             await self.auto_install_missing_packages(code_text, output_widget)
 
-            # 2. إرسال الكود للـ API
             output_widget.update("[Yellow]Running code on Server API...[/Yellow]")
             payload = {
                 "code": code_text,
-                "filename": "script.py"
+                "filename": filename
             }
 
             try:
@@ -102,10 +121,31 @@ class CodeXApp(App):
             except Exception as e:
                 output_widget.update(f"[Red]Connection Error:[/Red]\n{str(e)}")
 
+        # 2. زر حفظ الملف (Save)
+        elif event.button.id == "save_btn":
+            try:
+                with open(filename, "w", encoding="utf-8") as f:
+                    f.write(editor.text)
+                output_widget.update(f"[Green]File saved successfully as '{filename}'[/Green]")
+            except Exception as e:
+                output_widget.update(f"[Red]Error saving file:[/Red] {str(e)}")
+
+        # 3. زر تحميل الملف (Load)
+        elif event.button.id == "load_btn":
+            if os.path.exists(filename):
+                try:
+                    with open(filename, "r", encoding="utf-8") as f:
+                        editor.text = f.read()
+                    output_widget.update(f"[Green]Loaded file '{filename}' into editor.[/Green]")
+                except Exception as e:
+                    output_widget.update(f"[Red]Error loading file:[/Red] {str(e)}")
+            else:
+                output_widget.update(f"[Red]Error:[/Red] File '{filename}' does not exist.")
+
+        # 4. زر مسح المخرجات
         elif event.button.id == "clear_btn":
             output_widget.update("Output cleared.")
 
 if __name__ == "__main__":
     app = CodeXApp()
     app.run()
-
