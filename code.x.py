@@ -19,28 +19,21 @@ from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Button, Input, TextArea, RichLog
 from textual.containers import Container, Horizontal
 
-GLOT_URL = "https://glot.io/api/run"
+WANDBOX_URL = "https://wandbox.org/api/compile.json"
 
-GLOT_LANG_MAP = {
-    ".py": "python",
-    ".cpp": "cpp",
-    ".c": "c",
-    ".java": "java",
-    ".rs": "rust",
-    ".js": "javascript",
-    ".ts": "typescript",
-    ".go": "go",
-    ".cs": "csharp",
-    ".php": "php",
-    ".rb": "ruby",
-    ".kt": "kotlin",
-    ".swift": "swift",
-    ".sh": "bash",
-    ".lua": "lua",
-    ".hs": "haskell",
-    ".r": "r",
-    ".pl": "perl",
-    ".scala": "scala"
+# خريطة المترجمات الخاصة بـ Wandbox
+COMPILER_MAP = {
+    ".py": "cpython-3.10.11",
+    ".cpp": "gcc-13.2.0",
+    ".c": "gcc-13.2.0-c",
+    ".js": "nodejs-18.16.0",
+    ".rs": "rust-1.70.0",
+    ".java": "openjdk-head",
+    ".go": "go-1.20.4",
+    ".cs": "dotnet-7.0.302",
+    ".php": "php-8.2.5",
+    ".rb": "ruby-3.2.2",
+    ".sh": "bash"
 }
 
 class CodeXApp(App):
@@ -114,33 +107,29 @@ class CodeXApp(App):
                 return
 
             ext = os.path.splitext(filename)[1].lower()
-            language = GLOT_LANG_MAP.get(ext, ext.replace(".", ""))
+            compiler = COMPILER_MAP.get(ext, "cpython-3.10.11")
 
-            log.write(f"[bold cyan]Executing {filename} via Glot Engine ({language})...[/]")
+            log.write(f"[bold cyan]Executing {filename} via Wandbox ({compiler})...[/]")
 
             payload = {
-                "files": [
-                    {
-                        "name": filename,
-                        "content": code
-                    }
-                ]
+                "compiler": compiler,
+                "code": code
             }
 
             headers = {"Content-Type": "application/json"}
 
             try:
-                res = requests.post(f"{GLOT_URL}/{language}/latest", json=payload, headers=headers, timeout=15)
+                res = requests.post(WANDBOX_URL, json=payload, headers=headers, timeout=20)
                 data = res.json()
 
-                stdout = data.get("stdout", "")
-                stderr = data.get("stderr", "")
-                error = data.get("error", "")
+                program_output = data.get("program_output", "")
+                compiler_error = data.get("compiler_error", "")
+                status = data.get("status", "")
 
-                output = stdout + stderr + error
+                output = program_output + compiler_error
 
                 log.write("\n[bold yellow]--- OUTPUT ---[/]")
-                log.write(output if output else "[Execution finished with no output]")
+                log.write(output if output else f"[Execution finished with status: {status}]")
 
             except Exception as e:
                 log.write(f"[bold red]Connection Error:[/] {str(e)}")
