@@ -2,128 +2,92 @@ import sys
 import os
 import subprocess
 
-# --- دالة التثبيت التلقائي الشاملة بدون أخطاء ---
-def auto_install_all():
-    # 1. التثبيت عبر pkg لبيئة Termux لضمان عدم حدوث خطأ qmake/PyQt5
-    try:
-        import PyQt5
-    except ImportError:
-        print("[+] Installing PyQt5 & System Dependencies via pkg...")
-        subprocess.run("pkg update -y && pkg install x11-repo -y && pkg install python-pyqt5 qt5-qtbase -y", shell=True)
-
-    # 2. تثبيت باقي المكتبات عبر pip تلقائياً
-    pip_packages = ["requests", "pycurl"]
-    for package in pip_packages:
+# --- تثبيت المكتبات تلقائياً في الخفاء دون تدخل من المستخدم ---
+def auto_setup():
+    required = ["requests"]
+    for pkg in required:
         try:
-            __import__(package)
+            __import__(pkg)
         except ImportError:
-            print(f"[+] Installing {package} via pip...")
-            subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+            subprocess.check_call([sys.executable, "-m", "pip", "install", pkg])
 
-auto_install_all()
+auto_setup()
 
-import pycurl
-import json
-from io import BytesIO
-from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
-                             QLineEdit, QTextEdit, QPushButton)
-from PyQt5.QtGui import QFont, QColor, QPalette
+import requests
+import tkinter as tk
+from tkinter import messagebox
 
 JUDGE0_URL = "https://judge0-ce.p.rapidapi.com"
 
-class CodeXApp(QWidget):
-    def __init__(self):
-        super().__init__()
+class CodeXApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Code.x - Universal Code Executor")
+        self.root.geometry("550x650")
+        self.root.configure(bg="#1e1e2e")
+
         self.languages_map = {}
-        self.initUI()
+
+        # 1. حقل اسم الملف
+        self.lbl_file = tk.Label(root, text="Filename (e.g. main.cpp, Main.java, app.rs, script.py):", bg="#1e1e2e", fg="#cdd6f4", anchor="w")
+        self.lbl_file.pack(fill="x", padx=15, pady=(15, 2))
+
+        self.filename_entry = tk.Entry(root, bg="#313244", fg="#cdd6f4", insertbackground="white", font=("Consolas", 11), relief="flat")
+        self.filename_entry.pack(fill="x", padx=15, pady=5, ipady=6)
+
+        # 2. حقل كتابة الكود
+        self.lbl_code = tk.Label(root, text="Source Code:", bg="#1e1e2e", fg="#cdd6f4", anchor="w")
+        self.lbl_code.pack(fill="x", padx=15, pady=(10, 2))
+
+        self.code_editor = tk.Text(root, bg="#181825", fg="#a6adc8", insertbackground="white", font=("Consolas", 11), relief="flat", height=12)
+        self.code_editor.pack(fill="both", expand=True, padx=15, pady=5)
+
+        # 3. الأزرار
+        btn_frame = tk.Frame(root, bg="#1e1e2e")
+        btn_frame.pack(fill="x", padx=15, pady=10)
+
+        self.btn_load = tk.Button(btn_frame, text="Load", command=self.load_file, bg="#45475a", fg="white", relief="flat", font=("Arial", 10, "bold"), width=10)
+        self.btn_load.pack(side="left", padx=2)
+
+        self.btn_save = tk.Button(btn_frame, text="Save", command=self.save_file, bg="#45475a", fg="white", relief="flat", font=("Arial", 10, "bold"), width=10)
+        self.btn_save.pack(side="left", padx=2)
+
+        self.btn_run = tk.Button(btn_frame, text="Run", command=self.run_code, bg="#89b4fa", fg="#11111b", relief="flat", font=("Arial", 10, "bold"), width=10)
+        self.btn_run.pack(side="right", padx=2)
+
+        # 4. شاشة عرض النتائج
+        self.lbl_out = tk.Label(root, text="Output:", bg="#1e1e2e", fg="#cdd6f4", anchor="w")
+        self.lbl_out.pack(fill="x", padx=15, pady=(5, 2))
+
+        self.output_display = tk.Text(root, bg="#11111b", fg="#a6e3a1", font=("Consolas", 11), relief="flat", height=8)
+        self.output_display.pack(fill="x", padx=15, pady=(0, 15))
+
+        # جلب كافة لغات العالم تلقائياً
         self.load_all_languages()
-
-    def initUI(self):
-        self.setWindowTitle("Code.x - Universal Fast Executor")
-        self.resize(600, 700)
-
-        palette = QPalette()
-        palette.setColor(QPalette.Window, QColor(30, 30, 46))
-        palette.setColor(QPalette.WindowText, QColor(205, 214, 244))
-        self.setPalette(palette)
-
-        layout = QVBoxLayout()
-
-        self.filename_input = QLineEdit()
-        self.filename_input.setPlaceholderText("Enter filename (e.g., main.cpp, Main.java, app.rs, script.py)")
-        self.filename_input.setFont(QFont("Consolas", 11))
-        layout.addWidget(self.filename_input)
-
-        self.code_editor = QTextEdit()
-        self.code_editor.setFont(QFont("Consolas", 12))
-        self.code_editor.setPlaceholderText("Write your code here...")
-        layout.addWidget(self.code_editor)
-
-        btn_layout = QHBoxLayout()
-        self.load_btn = QPushButton("Load")
-        self.save_btn = QPushButton("Save")
-        self.run_btn = QPushButton("Run")
-
-        self.load_btn.clicked.connect(self.load_file)
-        self.save_btn.clicked.connect(self.save_file)
-        self.run_btn.clicked.connect(self.run_code)
-
-        btn_layout.addWidget(self.load_btn)
-        btn_layout.addWidget(self.save_btn)
-        btn_layout.addWidget(self.run_btn)
-        layout.addLayout(btn_layout)
-
-        self.output_display = QTextEdit()
-        self.output_display.setReadOnly(True)
-        self.output_display.setFont(QFont("Consolas", 11))
-        layout.addWidget(self.output_display)
-
-        self.setLayout(layout)
-
-    def fast_post_request(self, url, data_dict):
-        buffer = BytesIO()
-        c = pycurl.Curl()
-        c.setopt(c.URL, url)
-        c.setopt(c.POSTFIELDS, json.dumps(data_dict))
-        c.setopt(c.HTTPHEADER, ['Content-Type: application/json'])
-        c.setopt(c.WRITEDATA, buffer)
-        c.setopt(c.TIMEOUT, 15)
-        c.perform()
-        c.close()
-        return json.loads(buffer.getvalue().decode('utf-8'))
-
-    def fast_get_request(self, url):
-        buffer = BytesIO()
-        c = pycurl.Curl()
-        c.setopt(c.URL, url)
-        c.setopt(c.WRITEDATA, buffer)
-        c.setopt(c.TIMEOUT, 5)
-        c.perform()
-        c.close()
-        return json.loads(buffer.getvalue().decode('utf-8'))
 
     def load_all_languages(self):
         try:
-            languages = self.fast_get_request(f"{JUDGE0_URL}/languages")
-            for lang in languages:
-                lang_id = lang["id"]
-                lang_name = lang["name"].lower()
+            res = requests.get(f"{JUDGE0_URL}/languages", timeout=5)
+            if res.status_code == 200:
+                for lang in res.json():
+                    lang_id = lang["id"]
+                    lang_name = lang["name"].lower()
 
-                if "python" in lang_name: self.languages_map[".py"] = lang_id
-                elif "c++" in lang_name or "g++" in lang_name: self.languages_map[".cpp"] = lang_id
-                elif "c (" in lang_name or "gcc" in lang_name: self.languages_map[".c"] = lang_id
-                elif "java " in lang_name: self.languages_map[".java"] = lang_id
-                elif "rust" in lang_name: self.languages_map[".rs"] = lang_id
-                elif "javascript" in lang_name or "node" in lang_name: self.languages_map[".js"] = lang_id
-                elif "typescript" in lang_name: self.languages_map[".ts"] = lang_id
-                elif "go (" in lang_name: self.languages_map[".go"] = lang_id
-                elif "c#" in lang_name: self.languages_map[".cs"] = lang_id
-                elif "php" in lang_name: self.languages_map[".php"] = lang_id
-                elif "ruby" in lang_name: self.languages_map[".rb"] = lang_id
-                elif "kotlin" in lang_name: self.languages_map[".kt"] = lang_id
-                elif "swift" in lang_name: self.languages_map[".swift"] = lang_id
-                elif "bash" in lang_name: self.languages_map[".sh"] = lang_id
-                elif "lua" in lang_name: self.languages_map[".lua"] = lang_id
+                    if "python" in lang_name: self.languages_map[".py"] = lang_id
+                    elif "c++" in lang_name or "g++" in lang_name: self.languages_map[".cpp"] = lang_id
+                    elif "c (" in lang_name or "gcc" in lang_name: self.languages_map[".c"] = lang_id
+                    elif "java " in lang_name: self.languages_map[".java"] = lang_id
+                    elif "rust" in lang_name: self.languages_map[".rs"] = lang_id
+                    elif "javascript" in lang_name or "node" in lang_name: self.languages_map[".js"] = lang_id
+                    elif "typescript" in lang_name: self.languages_map[".ts"] = lang_id
+                    elif "go (" in lang_name: self.languages_map[".go"] = lang_id
+                    elif "c#" in lang_name: self.languages_map[".cs"] = lang_id
+                    elif "php" in lang_name: self.languages_map[".php"] = lang_id
+                    elif "ruby" in lang_name: self.languages_map[".rb"] = lang_id
+                    elif "kotlin" in lang_name: self.languages_map[".kt"] = lang_id
+                    elif "swift" in lang_name: self.languages_map[".swift"] = lang_id
+                    elif "bash" in lang_name: self.languages_map[".sh"] = lang_id
+                    elif "lua" in lang_name: self.languages_map[".lua"] = lang_id
         except Exception:
             self.languages_map = {
                 ".py": 71, ".cpp": 54, ".c": 50, ".java": 62, 
@@ -136,33 +100,36 @@ class CodeXApp(QWidget):
         return self.languages_map.get(ext, 71)
 
     def load_file(self):
-        filename = self.filename_input.text()
+        filename = self.filename_entry.get().strip()
         if os.path.exists(filename):
             with open(filename, "r", encoding="utf-8") as f:
-                self.code_editor.setText(f.read())
+                self.code_editor.delete("1.0", tk.END)
+                self.code_editor.insert(tk.END, f.read())
 
     def save_file(self):
-        filename = self.filename_input.text()
+        filename = self.filename_entry.get().strip()
         if filename:
             with open(filename, "w", encoding="utf-8") as f:
-                f.write(self.code_editor.toPlainText())
+                f.write(self.code_editor.get("1.0", tk.END))
 
     def run_code(self):
-        filename = self.filename_input.text()
-        code = self.code_editor.toPlainText()
-        
+        filename = self.filename_entry.get().strip()
+        code = self.code_editor.get("1.0", tk.END).strip()
+
         if not filename or not code:
-            self.output_display.setText("Error: Filename and Code cannot be empty.")
+            messagebox.showerror("Error", "Filename and Code cannot be empty!")
             return
 
         lang_id = self.get_language_id(filename)
         payload = {"source_code": code, "language_id": lang_id}
 
-        try:
-            self.output_display.setText("Running...")
-            QApplication.processEvents()
+        self.output_display.delete("1.0", tk.END)
+        self.output_display.insert(tk.END, "Running code on server...\n")
+        self.root.update()
 
-            data = self.fast_post_request(f"{JUDGE0_URL}/submissions?wait=true", payload)
+        try:
+            res = requests.post(f"{JUDGE0_URL}/submissions?wait=true", json=payload, timeout=15)
+            data = res.json()
 
             stdout = data.get("stdout")
             stderr = data.get("stderr")
@@ -173,12 +140,13 @@ class CodeXApp(QWidget):
             if stderr: output += f"\nError:\n{stderr}"
             if compile_output: output += f"\nCompilation Error:\n{compile_output}"
 
-            self.output_display.setText(output if output else "Execution finished with no output.")
+            self.output_display.delete("1.0", tk.END)
+            self.output_display.insert(tk.END, output if output else "Execution finished with no output.")
         except Exception as e:
-            self.output_display.setText(f"Connection Failed: {str(e)}")
+            self.output_display.delete("1.0", tk.END)
+            self.output_display.insert(tk.END, f"Connection Error: {str(e)}")
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = CodeXApp()
-    window.show()
-    sys.exit(app.exec_())
+    root = tk.Tk()
+    app = CodeXApp(root)
+    root.mainloop()
