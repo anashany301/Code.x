@@ -1,6 +1,9 @@
 import sys
 import os
 import subprocess
+import base64
+import json
+from io import BytesIO
 
 def auto_install():
     needed = ["textual", "pycurl"]
@@ -12,8 +15,6 @@ def auto_install():
 
 auto_install()
 
-import json
-from io import BytesIO
 import pycurl
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Button, Input, TextArea, RichLog
@@ -21,14 +22,13 @@ from textual.containers import Container, Horizontal
 
 JUDGE0_URL = "https://judge0-ce.p.rapidapi.com"
 
-# ربط مباشر وقاطع بين الامتداد ورقم اللغة في السيرفر
 STRICT_EXTENSION_MAP = {
     ".rs": 73,     # Rust
     ".java": 62,   # Java
     ".py": 71,     # Python 3
-    ".cpp": 54,    # C++ (GCC)
-    ".c": 50,      # C (GCC)
-    ".js": 63,     # Node.js
+    ".cpp": 54,    # C++
+    ".c": 50,      # C
+    ".js": 63,     # JavaScript
     ".ts": 74,     # TypeScript
     ".go": 60,     # Go
     ".cs": 51,     # C#
@@ -59,6 +59,14 @@ class CodeXApp(App):
         c.perform()
         c.close()
         return json.loads(buffer.getvalue().decode('utf-8'))
+
+    def decode_b64(self, text):
+        if not text:
+            return ""
+        try:
+            return base64.b64decode(text).decode('utf-8')
+        except Exception:
+            return text
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -104,35 +112,38 @@ class CodeXApp(App):
                 return
 
             ext = os.path.splitext(filename)[1].lower()
-            
-            # إجبار التعرف حسب الامتداد مباشرة
             lang_id = STRICT_EXTENSION_MAP.get(ext)
 
             if not lang_id:
                 log.write(f"[bold red]Error:[/] Unsupported file extension '{ext}'")
                 return
 
-            log.write(f"[bold cyan]Fast Execution via pycurl ({filename}) -> ID: {lang_id}...[/]")
+            log.write(f"[bold cyan]Fast Execution via pycurl ({filename})...[/]")
+
+            # تحويل الكود لـ Base64 لمنع ضياع السطور أو السلسلة النصية
+            encoded_code = base64.b64encode(code.encode('utf-8')).decode('utf-8')
 
             payload = {
-                "source_code": code,
+                "source_code": encoded_code,
                 "language_id": lang_id
             }
 
             try:
-                data = self.fast_post_request(f"{JUDGE0_URL}/submissions?wait=true", payload)
+                # إرسال طلب التشفير بالـ base64
+                url = f"{JUDGE0_URL}/submissions?wait=true&base64_encoded=true"
+                data = self.fast_post_request(url, payload)
 
-                stdout = data.get("stdout")
-                stderr = data.get("stderr")
-                compile_output = data.get("compile_output")
+                stdout = self.decode_b64(data.get("stdout"))
+                stderr = self.decode_b64(data.get("stderr"))
+                compile_output = self.decode_b64(data.get("compile_output"))
 
                 output = ""
                 if stdout: output += stdout
-                if stderr: output += f"\nError:\n{stderr}"
-                if compile_output: output += f"\nCompilation Error:\n{compile_output}"
+                if stderr: output += f"\n[bold red]Error:[/]\n{stderr}"
+                if compile_output: output += f"\n[bold red]Compilation Error:[/]\n{compile_output}"
 
                 log.write("\n[bold yellow]--- OUTPUT ---[/]")
-                log.write(output if output else "[Execution finished with no output]")
+                log.write(output if output.strip() else "[Execution finished with no output]")
 
             except Exception as e:
                 log.write(f"[bold red]Connection Error:[/] {str(e)}")
