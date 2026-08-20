@@ -22,9 +22,9 @@ if __name__ == "__main__":
     check_and_install()
     
     # 2. تشغيل الأداة مباشرة
-    print("--- جاري فتح code.x.py ---")
+    print("--- code.x.py ---")
     try:
         # استخدام subprocess لتشغيل الملف مباشرة لتجنب أي مشاكل في الاسم
         subprocess.run([sys.executable, "code.x.py"])
     except Exception as e:
-        print(f"--- حدث خطأ عند تشغيل الأداة: {e} ---")
+        print(f"--- Error {e} ---")
