@@ -26,7 +26,7 @@ class CodeXApp(App):
         padding: 0 1;
     }
     #filename_input {
-        width: 60%;
+        width: 70%;
     }
     .file_btn {
         margin: 0 1;
@@ -52,10 +52,10 @@ class CodeXApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
+        # إطار الملفات (بقى فيه Save بس)
         yield Horizontal(
             Input(value="script.py", placeholder="Filename (e.g. main.py)", id="filename_input"),
             Button("Save", id="save_btn", variant="primary", classes="file_btn"),
-            Button("Load", id="load_btn", variant="default", classes="file_btn"),
             id="file_bar"
         )
         yield Vertical(
@@ -64,8 +64,10 @@ class CodeXApp(App):
                 id="editor", 
                 language="python"
             ),
+            # إطار التحكم (بقى فيه Run، Load، Clear)
             Horizontal(
                 Button("Run Code", id="run_btn", variant="success", classes="action_btn"),
+                Button("Load", id="load_btn", variant="default", classes="action_btn"),
                 Button("Clear Output", id="clear_btn", variant="error", classes="action_btn"),
                 id="controls"
             ),
@@ -74,7 +76,6 @@ class CodeXApp(App):
         yield Footer()
 
     async def auto_install_missing_packages(self, code_text: str, output_widget: Static):
-        """فحص وتثبيت أي مكتبة ناقصة محلياً قبل التشغيل"""
         imports = re.findall(r'^(?:import|from)\s+([a-zA-Z0-9_]+)', code_text, re.MULTILINE)
         needed_libs = set(imports) - STDLIB
 
@@ -96,15 +97,10 @@ class CodeXApp(App):
         # 1. زر تشغيل الكود
         if event.button.id == "run_btn":
             code_text = editor.text
-            
-            # تثبيت المكتبات الناقصة
             await self.auto_install_missing_packages(code_text, output_widget)
 
             output_widget.update("[Yellow]Running code on Server API...[/Yellow]")
-            payload = {
-                "code": code_text,
-                "filename": filename
-            }
+            payload = {"code": code_text, "filename": filename}
 
             try:
                 async with httpx.AsyncClient(timeout=20.0) as client:
@@ -115,9 +111,6 @@ class CodeXApp(App):
                     output_widget.update(f"[Green]Result:[/Green]\n{result}")
                 else:
                     output_widget.update(f"[Red]Server Error ({response.status_code}):[/Red]\n{response.text}")
-
-            except httpx.TimeoutException:
-                output_widget.update("[Red]Error: Request timed out (20s limit).[/Red]")
             except Exception as e:
                 output_widget.update(f"[Red]Connection Error:[/Red]\n{str(e)}")
 
